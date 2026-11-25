@@ -80,6 +80,7 @@ public:
 	void drawBottomBg(int bg);
 
 	void loadBoxArtToMem(const char *filename, int num);
+	void markBoxArtMissing(int num);
 	bool drawBoxArt(const char* filename, bool inMem);
 private:
 	bool drawBoxArtBmp(const char* filename, bool inMem);

@@ -1202,6 +1202,13 @@ ITCM_CODE void ThemeTextures::resetProfileName() {
 	_profileNameLoaded = false;
 }
 
+void ThemeTextures::markBoxArtMissing(int num) {
+	if (num < 0 || num > 39) {
+		return;
+	}
+	boxArtFound[num] = false;
+}
+
 void ThemeTextures::loadBoxArtToMem(const char *filename, int num) {
 	if (num < 0 || num > 39) {
 		return;

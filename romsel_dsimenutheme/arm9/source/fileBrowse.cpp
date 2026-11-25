@@ -498,6 +498,82 @@ void displayNowLoading(void) {
 	showProgressIcon = true;
 }
 
+// Box art folder index: each access() on a box art path resolves it from the card
+// root, and a miss scans the whole folder, up to four times per entry. Listing the
+// folder once answers "does it exist?" from memory. DSi-class consoles only.
+static std::vector<std::string> boxArtIndex; // lower-cased file names, sorted
+static bool boxArtIndexBuilt = false;
+static bool boxArtIndexUsable = false;
+
+static std::string lowerAscii(const char *s) {
+	std::string out(s);
+	for (char &ch : out) {
+		if (ch >= 'A' && ch <= 'Z') ch += 'a' - 'A';
+	}
+	return out;
+}
+
+static void buildBoxArtIndex() {
+	boxArtIndexBuilt = true;
+	if (!dsiFeatures()) return;
+
+	DIR *dir = opendir(sys().isRunFromSD() ? "sd:/_nds/TWiLightMenu/boxart/" : "fat:/_nds/TWiLightMenu/boxart/");
+	if (!dir) return;
+	while (dirent *ent = readdir(dir)) {
+		if (ent->d_type == DT_DIR) continue;
+		boxArtIndex.push_back(lowerAscii(ent->d_name));
+	}
+	closedir(dir);
+	std::sort(boxArtIndex.begin(), boxArtIndex.end());
+	boxArtIndexUsable = true;
+}
+
+static bool boxArtFileExists(const char *base, const char *ext, const char *fullPath) {
+	if (!boxArtIndexBuilt) buildBoxArtIndex();
+	if (boxArtIndexUsable) {
+		const std::string key = lowerAscii(base) + "." + ext;
+		if (std::binary_search(boxArtIndex.begin(), boxArtIndex.end(), key))
+			return true;
+		// FAT also folds the case of non-ASCII letters, which the index doesn't,
+		// so only trust a "no" for plain ASCII names.
+		bool plain = true;
+		for (const char *ch = base; *ch; ch++) {
+			if ((unsigned char)*ch >= 0x80) { plain = false; break; }
+		}
+		if (plain) return false;
+	}
+	return access(fullPath, F_OK) == 0;
+}
+
+// Tries <name>.bmp, <name>.png, then <tid>.bmp, <tid>.png when tid is given.
+// out holds the path found, or the last one tried.
+static bool findBoxArtPath(const char *name, const char *tid, char *out, size_t outSize) {
+	const char *device = sys().isRunFromSD() ? "sd" : "fat";
+	const char *bases[2] = {name, tid};
+	const char *exts[2] = {"bmp", "png"};
+	for (int b = 0; b < (tid ? 2 : 1); b++) {
+		for (int e = 0; e < 2; e++) {
+			snprintf(out, outSize, "%s:/_nds/TWiLightMenu/boxart/%s.%s", device, bases[b], exts[e]);
+			if (boxArtFileExists(bases[b], exts[e], out))
+				return true;
+		}
+	}
+	return false;
+}
+
+// Loads one grid slot's box art into the cache (box art cache mode only).
+// Folders go through here too, so they don't keep a previous entry's box art.
+static void loadSlotBoxArt(const char *name, int i) {
+	if (!(dsiFeatures() && !ms().macroMode && ms().showBoxArt == 2 && ms().theme != TWLSettings::EThemeHBL))
+		return;
+
+	const char *tid = (!isDirectory[i] && bnrRomType[i] == 0) ? gameTid[i] : nullptr;
+	if (findBoxArtPath(name, tid, boxArtPath, sizeof(boxArtPath)))
+		tex().loadBoxArtToMem(boxArtPath, i);
+	else
+		tex().markBoxArtMissing(i);
+}
+
 // Refreshes every icon bank the grid can sample this frame.
 //
 // The draw loop in graphics.cpp draws list entries
@@ -707,19 +783,12 @@ void updateBoxArt(void) {
 		clearBoxArt();
 	}
 
-	sprintf(boxArtPath, "%s:/_nds/TWiLightMenu/boxart/%s.bmp", sys().isRunFromSD() ? "sd" : "fat", boxArtFilename);
-	if (access(boxArtPath, F_OK) != 0) {
-		sprintf(boxArtPath, "%s:/_nds/TWiLightMenu/boxart/%s.png", sys().isRunFromSD() ? "sd" : "fat", boxArtFilename);
-	}
-	if (!isDirectory[CURPOS] && (bnrRomType[CURPOS] == 0)) {
-		if (access(boxArtPath, F_OK) != 0) {
-			sprintf(boxArtPath, "%s:/_nds/TWiLightMenu/boxart/%s.bmp", sys().isRunFromSD() ? "sd" : "fat", gameTid[CURPOS]);
-		}
-		if (access(boxArtPath, F_OK) != 0) {
-			sprintf(boxArtPath, "%s:/_nds/TWiLightMenu/boxart/%s.png", sys().isRunFromSD() ? "sd" : "fat", gameTid[CURPOS]);
-		}
-	}
-	if (!tex().drawBoxArt(boxArtPath, (dsiFeatures() && ms().showBoxArt == 2))) { // Load box art
+	const bool haveBoxArt = findBoxArtPath(boxArtFilename,
+			(!isDirectory[CURPOS] && bnrRomType[CURPOS] == 0) ? gameTid[CURPOS] : nullptr,
+			boxArtPath, sizeof(boxArtPath));
+	const bool fromCache = (dsiFeatures() && ms().showBoxArt == 2);
+	// Not from the cache: no need for drawBoxArt() to probe a file the index says is missing
+	if (!(fromCache || haveBoxArt) || !tex().drawBoxArt(boxArtPath, fromCache)) { // Load box art
 		if (ms().theme == TWLSettings::ETheme3DS && !rocketVideo_topVisible) {
 			resumeRotatingCubesVideo();
 		}
@@ -2881,31 +2950,8 @@ void getFileInfo(SwitchState scrn, const vector<vector<DirEntry>> &dirContents, 
 				}
 			}
 
-			// Folders too: skipping them left the slot showing the box art of the
-			// entry that occupied it before.
-			if (dsiFeatures() && !ms().macroMode && ms().showBoxArt == 2 && ms().theme != TWLSettings::EThemeHBL) {
-				snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.bmp",
-						 sys().isRunFromSD() ? "sd" : "fat",
-						 dirContents[scrn][i + PAGENUM * 40].name.c_str());
-				if (access(boxArtPath, F_OK) != 0) {
-					snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.png",
-							 sys().isRunFromSD() ? "sd" : "fat",
-							 dirContents[scrn][i + PAGENUM * 40].name.c_str());
-				}
-				if (!isDirectory[i] && (bnrRomType[i] == 0) && (access(boxArtPath, F_OK) != 0)) {
-					if (access(boxArtPath, F_OK) != 0) {
-						snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.bmp",
-								 (sys().isRunFromSD() ? "sd" : "fat"),
-								 gameTid[i]);
-					}
-					if (access(boxArtPath, F_OK) != 0) {
-						snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.png",
-								 (sys().isRunFromSD() ? "sd" : "fat"),
-								 gameTid[i]);
-					}
-				}
-				tex().loadBoxArtToMem(boxArtPath, i);
-			}
+			loadSlotBoxArt(std_romsel_filename.c_str(), i);
+
 			if (reSpawnBoxes)
 				spawnedtitleboxes++;
 
