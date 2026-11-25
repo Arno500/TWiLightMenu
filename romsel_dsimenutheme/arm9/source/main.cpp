@@ -2093,7 +2093,7 @@ int dsiMenuTheme(void) {
 						runNdsFile(argarray[0], argarray.size(), (const char**)&argarray[0], sys().isRunFromSD(), true, false, false, true, true, false, -1, sys().commonCache());
 						stop();
 					} else
-					if ((((perGameSettings_fcGameLoader == -1 ? (ms().fcGameLoader == TWLSettings::ENdsBootstrap) : (perGameSettings_fcGameLoader == TWLSettings::ENdsBootstrap)) && !ms().homebrewBootstrap) || !ms().secondaryDevice) || (dsiFeatures() && unitCode[CURPOS] > 0 && (perGameSettings_dsiMode == -1 ? DEFAULT_DSI_MODE : perGameSettings_dsiMode))
+					if ((((perGameSettings_fcGameLoader == -1 ? (ms().fcGameLoader == TWLSettings::ENdsBootstrap) : (perGameSettings_fcGameLoader == TWLSettings::ENdsBootstrap)) && !ms().homebrewBootstrap) || !ms().secondaryDevice) || (dsiFeatures() && unitCode[CURPOS] > 0 && !(ms().secondaryDevice && unitCode[CURPOS] == 2 && perGameSettings_dsiMode == -1 && memcmp(io_dldi_data->friendlyName, "DSTWO(Slot-1)", 13) == 0 /* the DSTWO kernel runs DSi-enhanced games in DS mode by default */) && (perGameSettings_dsiMode == -1 ? DEFAULT_DSI_MODE : perGameSettings_dsiMode))
 					|| (ms().secondaryDevice && !ms().kernelUseable)
 					|| (unitCode[CURPOS] == 3 && !ms().homebrewBootstrap)) {
 						std::string path = argarray[0];
