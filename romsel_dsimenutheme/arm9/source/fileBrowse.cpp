@@ -163,6 +163,7 @@ extern void bgOperations(bool waitFrame);
 std::string gameOrderIniPath, recentlyPlayedIniPath, timesPlayedIniPath;
 
 static bool inSelectMenu = false;
+static bool scrollBarRegrab = false; // scroll bar thumb grabbed while the icon strip was still gliding
 
 struct DirEntry {
 	DirEntry(std::string name, bool isDirectory, int position, int customPos) : name(name), isDirectory(isDirectory), position(position), customPos(customPos) {}
@@ -3467,8 +3468,9 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 				pressed = keysDown();
 				held = keysDownRepeat();
 				touchRead(&touch);
+				if (scrollBarRegrab) break; // handled below as a scroll bar grab
 
-				boxArtFound = ((CURPOS + PAGENUM * 40) < ((int)dirContents[scrn].size()));
+				boxArtFound =((CURPOS + PAGENUM * 40) < ((int)dirContents[scrn].size()));
 				if (boxArtFound) {
 					boxArtFilename = dirContents[scrn].at(CURPOS + PAGENUM * 40).name.c_str();
 				}
@@ -3555,6 +3557,8 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 				}*/
 			} while (!held);
 
+			if (scrollBarRegrab && !(keysHeld() & KEY_TOUCH)) scrollBarRegrab = false; // let go meanwhile
+
 			buttonArrowTouched[0] = ((keysHeld() & KEY_TOUCH) && touch.py > 171 && touch.px < 19);
 			buttonArrowTouched[1] = ((keysHeld() & KEY_TOUCH) && touch.py > 171 && touch.px > 236);
 
@@ -3613,8 +3617,9 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 				}
 
 				endMoveMode(scrn, dirContents, mv);
-			} else if ((pressed & KEY_TOUCH) && touch.py > 171 && touch.px >= 19 && touch.px <= 236 && ms().theme == TWLSettings::EThemeDSi) { // Scroll bar (DSi theme)
+			} else if (((pressed & KEY_TOUCH) || scrollBarRegrab) && touch.py > 171 && touch.px >= 19 && touch.px <= 236 && ms().theme == TWLSettings::EThemeDSi) { // Scroll bar (DSi theme)
 				touchPosition startTouch = touch;
+				scrollBarRegrab = false;
 				showSTARTborder = false;
 				titleboxXspeed = 3;
 				scrollWindowTouched = true;
@@ -3626,15 +3631,18 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 				infoCheckTimer = 0;
 
 				int prevPos = CURPOS;
+				int lastTextPos = -1; // redraw the banner text only when the selection changes
 				while (1) {
 					scanKeys();
 					touchRead(&touch);
 					bgOperations(true);
 
 					if (keysHeld() & KEY_TOUCH) {
+						titleboxXspeed = 1; // follow the stylus 1:1 while held
 						titlewindowXdest[ms().secondaryDevice] = std::clamp(touch.px - 30, 0, 192);
 						titleboxXdest[ms().secondaryDevice] = std::clamp((touch.px - 30) * titleboxXspacing / 5 - 28, 0, titleboxXspacing * last_used_box);
 					} else {
+						titleboxXspeed = 3; // eased snap to the nearest icon after release
 						int dest = (titleboxXdest[ms().secondaryDevice] + 28) / titleboxXspacing;
 						titlewindowXdest[ms().secondaryDevice] = dest * 5;
 						titleboxXdest[ms().secondaryDevice] = dest * titleboxXspacing;
@@ -3653,17 +3661,22 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 
 					if (CURPOS + PAGENUM * 40 < ((int)dirContents[scrn].size())) {
 						currentBg = 1;
-						clearText();
-						titleUpdate(dirContents[scrn][CURPOS + PAGENUM * 40].isDirectory,
-									dirContents[scrn][CURPOS + PAGENUM * 40].name,
-									CURPOS);
-						bannerTextShown = true;
-						updateText(false);
+						if (CURPOS != lastTextPos) {
+							clearText();
+							titleUpdate(dirContents[scrn][CURPOS + PAGENUM * 40].isDirectory,
+										dirContents[scrn][CURPOS + PAGENUM * 40].name,
+										CURPOS);
+							bannerTextShown = true;
+							updateText(false);
+						}
 					} else {
-						clearText();
-						updateText(false);
+						if (CURPOS != lastTextPos) {
+							clearText();
+							updateText(false);
+						}
 						currentBg = 0;
 					}
+					lastTextPos = CURPOS;
 				}
 				scrollWindowTouched = false;
 				titleboxXspeed = 8;
@@ -3865,7 +3878,17 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 					}
 				} else if (ms().theme != TWLSettings::EThemeSaturn) {
 					draggingIcons = true;
+					titleboxXspeed = 1; // follow the stylus 1:1 while dragging
 					int prevPos = CURPOS;
+					// Redraw the 48 KB text layer only when the selection or its visibility changes
+					int lastTextPos = -1;
+					bool lastTextVisible = false;
+					// Fling speed averaged over the last frames: the final sample is often tiny
+					int dxHist[4] = {0, 0, 0, 0};
+					int dxHistCount = 0, dxHistWrite = 0;
+					// Grabbed mid-glide: stop the strip where it is
+					titleboxXdest[ms().secondaryDevice] = titleboxXpos[ms().secondaryDevice];
+					titlewindowXdest[ms().secondaryDevice] = std::clamp(titleboxXpos[ms().secondaryDevice] * 5 / titleboxXspacing, 0, 192);
 					showSTARTborder = false;
 
 					while (1) {
@@ -3875,7 +3898,16 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 
 						if (!(keysHeld() & KEY_TOUCH)) {
 							titleboxXspeed = 6;
-							int dx = std::clamp(-(prevTouch1.px - prevTouch2.px) * last_used_box / 192, -last_used_box, last_used_box);
+							int dxSum = 0;
+							for (int h = 0; h < dxHistCount; h++) dxSum += dxHist[h];
+							// Fling distance grows faster than the release speed v (px/frame):
+							// v=5 -> ~1 box, 15 -> ~4, 30 -> ~12, whatever the list length
+							int dx = 0;
+							if (dxHistCount) {
+								const float v = (float)-dxSum / dxHistCount;
+								const float travel = v * (8.0f + (v < 0 ? -v : v) * 0.5f);
+								dx = std::clamp((int)(travel / titleboxXspacing + (travel < 0 ? -0.5f : 0.5f)), -last_used_box, last_used_box);
+							}
 
 							int dest = std::clamp(CURPOS + dx, 0, last_used_box);
 							titlewindowXdest[ms().secondaryDevice] = dest * 5;
@@ -3930,13 +3962,24 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 							if (keysHeld() & KEY_TOUCH) {
 								prevTouch2 = touch;
 								touchRead(&prevTouch1);
-								titleboxXspeed = 3;
+								if (ms().theme == TWLSettings::EThemeDSi && prevTouch1.py > 171
+										&& prevTouch1.px >= 19 && prevTouch1.px <= 236) {
+									// Re-grabbed on the scroll bar thumb: hand over to the scroll bar
+									scrollBarRegrab = true;
+									break;
+								}
+								titleboxXspeed = 1;
+								titleboxXdest[ms().secondaryDevice] = titleboxXpos[ms().secondaryDevice];
+								titlewindowXdest[ms().secondaryDevice] = std::clamp(titleboxXpos[ms().secondaryDevice] * 5 / titleboxXspacing, 0, 192);
+								dxHistCount = 0;
 								continue;
 							}
 
 							break;
 						}
 
+						dxHist[dxHistWrite++ & 3] = touch.px - prevTouch1.px;
+						dxHistCount = std::min(dxHistCount + 1, 4);
 						titleboxXdest[ms().secondaryDevice] = titleboxXdest[ms().secondaryDevice] - (touch.px - prevTouch1.px);
 						titlewindowXdest[ms().secondaryDevice] = std::clamp(titleboxXdest[ms().secondaryDevice] * 5 / titleboxXspacing, 0, 192);
 						CURPOS = std::clamp((titleboxXpos[ms().secondaryDevice] + 28) / titleboxXspacing, 0, last_used_box);
@@ -3945,24 +3988,29 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 							refreshGridIcons(scrn, dirContents, CURPOS, false);
 						}
 
-						clearText();
-						if (CURPOS + PAGENUM * 40 < ((int)dirContents[scrn].size()) && titleboxXdest[ms().secondaryDevice] > -28 && titleboxXdest[ms().secondaryDevice] < titleboxXspacing * 39 + 28) {
-							currentBg = 1;
-							titleUpdate(dirContents[scrn][CURPOS + PAGENUM * 40].isDirectory,
-										dirContents[scrn][CURPOS + PAGENUM * 40].name,
-										CURPOS);
-						} else {
-							currentBg = 0;
+						const bool textVisible = CURPOS + PAGENUM * 40 < ((int)dirContents[scrn].size()) && titleboxXdest[ms().secondaryDevice] > -28 && titleboxXdest[ms().secondaryDevice] < titleboxXspacing * 39 + 28;
+						if (CURPOS != lastTextPos || textVisible != lastTextVisible) {
+							lastTextPos = CURPOS;
+							lastTextVisible = textVisible;
+							clearText();
+							if (textVisible) {
+								currentBg = 1;
+								titleUpdate(dirContents[scrn][CURPOS + PAGENUM * 40].isDirectory,
+											dirContents[scrn][CURPOS + PAGENUM * 40].name,
+											CURPOS);
+							} else {
+								currentBg = 0;
+							}
+							if (ms().theme == TWLSettings::EThemeHBL) {
+								printLarge(false, 0, 142, "^", Alignment::center, FontPalette::overlay);
+								printSmall(false, 4, 174, (showLshoulder ? STR_L_PREV : STR_L), Alignment::left, FontPalette::overlay);
+								printSmall(false, 256-4, 174, (showRshoulder ? STR_NEXT_R : STR_R), Alignment::right, FontPalette::overlay);
+							} else if (ms().macroMode && ms().theme != TWLSettings::EThemeSaturn) {
+								printSmall(false, 4, 152, (showLshoulder ? STR_L_PREV : STR_L), Alignment::left, FontPalette::overlay);
+								printSmall(false, 256-4, 152, (showRshoulder ? STR_NEXT_R : STR_R), Alignment::right, FontPalette::overlay);
+							}
+							updateText(false);
 						}
-						if (ms().theme == TWLSettings::EThemeHBL) {
-							printLarge(false, 0, 142, "^", Alignment::center, FontPalette::overlay);
-							printSmall(false, 4, 174, (showLshoulder ? STR_L_PREV : STR_L), Alignment::left, FontPalette::overlay);
-							printSmall(false, 256-4, 174, (showRshoulder ? STR_NEXT_R : STR_R), Alignment::right, FontPalette::overlay);
-						} else if (ms().macroMode && ms().theme != TWLSettings::EThemeSaturn) {
-							printSmall(false, 4, 152, (showLshoulder ? STR_L_PREV : STR_L), Alignment::left, FontPalette::overlay);
-							printSmall(false, 256-4, 152, (showRshoulder ? STR_NEXT_R : STR_R), Alignment::right, FontPalette::overlay);
-						}
-						updateText(false);
 
 						prevTouch2 = prevTouch1;
 						prevTouch1 = touch;
