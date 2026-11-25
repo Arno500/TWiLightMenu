@@ -1875,6 +1875,13 @@ void loadBootstrapScreenshot(FILE *file) {
 static std::string loadedDate;
 
 ITCM_CODE void drawCurrentDate() {
+	// Runs once per entry while loading: skip the formatting unless the clock moved
+	static time_t lastRawDate = (time_t)-1;
+	time_t rawDate = time(NULL);
+	if (rawDate == lastRawDate && !reloadDate)
+		return;
+	lastRawDate = rawDate;
+
 	// Load date
 	std::string currentDate = getDate();
 	if (currentDate == loadedDate && !reloadDate)
@@ -1890,6 +1897,15 @@ ITCM_CODE void drawCurrentDate() {
 static std::string loadedTime;
 
 ITCM_CODE void drawCurrentTime() {
+	// Same early-out; the blinking colon is part of the text, so let its changes through
+	static time_t lastRawTime = (time_t)-1;
+	static bool lastColon = false;
+	time_t rawTime = time(NULL);
+	if (rawTime == lastRawTime && showColon == lastColon && !reloadTime)
+		return;
+	lastRawTime = rawTime;
+	lastColon = showColon;
+
 	// Load time
 	std::string currentTime = retTime();
 	if (currentTime[0] == ' ')
