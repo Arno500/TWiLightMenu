@@ -3204,8 +3204,7 @@ static bool previousPage(SwitchState scrn, const vector<vector<DirEntry>> &dirCo
 	stopSoundPlayed = false;
 	clearText();
 	updateText(false);
-	ms().saveSettings();
-	settingsChanged = false;
+	settingsChanged = true; // saved on launch/exit, not on every page flip
 	if (showLshoulder) {
 		displayNowLoading();
 	} else {
@@ -3255,8 +3254,7 @@ static bool nextPage(SwitchState scrn, const vector<vector<DirEntry>> &dirConten
 	stopSoundPlayed = false;
 	clearText();
 	updateText(false);
-	ms().saveSettings();
-	settingsChanged = false;
+	settingsChanged = true; // saved on launch/exit, not on every page flip
 	if (showRshoulder) {
 		displayNowLoading();
 	} else {
@@ -4075,8 +4073,8 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 					updateText(false);
 					char buf[256];
 					ms().romfolder[ms().secondaryDevice] = std::string(getcwd(buf, 256));
-					ms().saveSettings();
-					settingsChanged = false;
+					// Saved on launch/exit like the cursor position: a write costs ~0.3 s
+					settingsChanged = true;
 					return "null";
 				} else {
 					if (isValid[CURPOS] && !isTwlm[CURPOS]) {
@@ -4575,8 +4573,7 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 				char buf[256];
 
 				ms().romfolder[ms().secondaryDevice] = std::string(getcwd(buf, 256));
-				ms().saveSettings();
-				settingsChanged = false;
+				settingsChanged = true; // as when entering a folder
 				return "null";
 			}
 
