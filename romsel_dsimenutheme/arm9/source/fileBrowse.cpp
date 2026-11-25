@@ -572,6 +572,7 @@ void moveCursor(bool right, const std::vector<DirEntry> dirContents, int maxEntr
 	bannerTextShown = false;
 
 	bool firstMove = true;
+	bool interrupted = false;
 	touchPosition touch;
 	do {
 		if (right && CURPOS < last_used_box && CURPOS < maxEntry) {
@@ -627,6 +628,9 @@ void moveCursor(bool right, const std::vector<DirEntry> dirContents, int maxEntr
 		snd().playSelect();
 
 		if (ms().theme != TWLSettings::EThemeSaturn) {
+			// Raw key register rather than scanKeys(), so the caller still sees the
+			// opposite press as a new one.
+			const u16 oppositeKey = right ? KEY_LEFT : KEY_RIGHT;
 			for (int i = 0; i < 8; i++) {
 				if (right) {
 					titleboxXdest[ms().secondaryDevice] += titleboxXspacing / 8;
@@ -638,9 +642,13 @@ void moveCursor(bool right, const std::vector<DirEntry> dirContents, int maxEntr
 						titlewindowXdest[ms().secondaryDevice]--;
 				}
 				swiWaitForVBlank();
+				if (~REG_KEYINPUT & oppositeKey) {
+					interrupted = true;
+					break;
+				}
 			}
 			titleboxXdest[ms().secondaryDevice] = CURPOS * titleboxXspacing;
-			swiWaitForVBlank();
+			if (!interrupted) swiWaitForVBlank();
 		} else {
 			if (right) {
 				titleboxXdest[ms().secondaryDevice] += titleboxXspacing;
@@ -682,16 +690,22 @@ void moveCursor(bool right, const std::vector<DirEntry> dirContents, int maxEntr
 				showSTARTborder = false;
 		}
 
+		// Opposite direction pressed: return now so the caller reverses at once.
+		if (interrupted) break;
 
 		scanKeys();
 		touchRead(&touch);
 	} while ((keysHeld() & (right ? KEY_RIGHT : KEY_LEFT)) || ((keysHeld() & KEY_TOUCH) && touch.py > 171 && (right ? touch.px > 236 : touch.px < 19) && ms().theme == TWLSettings::EThemeDSi));
 
-	// Wait for movement to finish before showing START boarder and such
-	while ((ms().theme != TWLSettings::ETheme3DS) && (titleboxXdest[ms().secondaryDevice] != titleboxXpos[ms().secondaryDevice]) && !(keysHeld() & KEY_TOUCH))
+	// Wait for movement to finish before showing START boarder and such,
+	// unless a direction is pressed again
+	while (!interrupted && (ms().theme != TWLSettings::ETheme3DS) && (titleboxXdest[ms().secondaryDevice] != titleboxXpos[ms().secondaryDevice]) && !(keysHeld() & KEY_TOUCH)) {
 		swiWaitForVBlank();
+		if (~REG_KEYINPUT & (KEY_LEFT | KEY_RIGHT))
+			interrupted = true;
+	}
 
-	if (movingApp == -1 && CURPOS + PAGENUM * 40 < (int)dirContents.size())
+	if (movingApp == -1 && !interrupted && CURPOS + PAGENUM * 40 < (int)dirContents.size())
 		showSTARTborder = true;
 	edgeBumpSoundPlayed = false;
 	needToPlayStopSound = true;
