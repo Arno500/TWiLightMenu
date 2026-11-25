@@ -726,8 +726,18 @@ void getGameInfo(bool isDir, const char *name, int num, bool fromArgv) {
 			return;
 		}
 		const u32 bannerOffset = isNdz[num] ? 0x10 : ndsHeader.bannerOffset;
+		// Read up to the last title (0xA40 bytes) first: only a DSi banner has more
 		fseek(fp, bannerOffset, SEEK_SET);
-		if (!fread(&ndsBanner, sizeof(ndsBanner), 1, fp)) {
+		const bool bannerRead = fread(&ndsBanner, NDS_BANNER_SIZE_ZH_KO, 1, fp);
+		if (bannerRead) {
+			u8 *const bannerRest = (u8*)&ndsBanner + NDS_BANNER_SIZE_ZH_KO;
+			const size_t bannerRestSize = sizeof(ndsBanner) - NDS_BANNER_SIZE_ZH_KO;
+			if (ndsBanner.version != NDS_BANNER_VER_DSi || !fread(bannerRest, bannerRestSize, 1, fp)) {
+				// Don't leave the previous ROM's DSi animation data behind
+				toncset(bannerRest, 0, bannerRestSize);
+			}
+		}
+		if (!bannerRead) {
 			// Only the NTR portion of the banner will be read, so clear the DSi
 			// animation data left behind by the previously loaded ROM.
 			toncset(ndsBanner.dsi_icon, 0, DSI_BANNER_ANIME_SIZE);

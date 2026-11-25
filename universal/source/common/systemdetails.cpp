@@ -128,14 +128,17 @@ void SystemDetails::initFilesystem(const char *runningPath)
 		return;
 	}
 
+	// libfat's default cache (64 KB) is smaller than what loading one menu entry
+	// touches, so folders were re-read from the card. DSi-class consoles get 256 KB.
+	const uint32_t cachePages = dsiFeatures() ? 64 : 16;
 	*(u32*)(0x2FFFD0C) = 0x54494D52;	// Run reboot timer
 	if (isDSiMode() && memcmp(io_dldi_data->friendlyName, "CycloDS iEvolution", 18) == 0) {
 		*(u32*)(0x2FFFA04) = 0x49444C44;
-		fatMountSimple("fat", &__my_io_dsisd);
+		fatMount("fat", &__my_io_dsisd, 0, cachePages, 8);
 		_fatInitOk = flashcardFound();
 	} else {
-		if (!sys().isRegularDS()) fatMountSimple("sd", &__my_io_dsisd);
-		fatMountSimple("fat", dldiGetInternal());
+		if (!sys().isRegularDS()) fatMount("sd", &__my_io_dsisd, 0, cachePages, 8);
+		fatMount("fat", dldiGetInternal(), 0, cachePages, 8);
 		_fatInitOk = (sdFound() || flashcardFound());
 	}
 	*(u32*)(0x2FFFD0C) = 0;
