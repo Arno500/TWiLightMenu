@@ -2879,30 +2879,32 @@ void getFileInfo(SwitchState scrn, vector<vector<DirEntry>> dirContents, bool re
 					isDSiWare[i] = false;
 					isHomebrew[i] = 0;
 				}
+			}
 
-				if (dsiFeatures() && !ms().macroMode && ms().showBoxArt == 2 && ms().theme != TWLSettings::EThemeHBL) {
-					snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.bmp",
+			// Folders too: skipping them left the slot showing the box art of the
+			// entry that occupied it before.
+			if (dsiFeatures() && !ms().macroMode && ms().showBoxArt == 2 && ms().theme != TWLSettings::EThemeHBL) {
+				snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.bmp",
+						 sys().isRunFromSD() ? "sd" : "fat",
+						 dirContents[scrn][i + PAGENUM * 40].name.c_str());
+				if (access(boxArtPath, F_OK) != 0) {
+					snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.png",
 							 sys().isRunFromSD() ? "sd" : "fat",
 							 dirContents[scrn][i + PAGENUM * 40].name.c_str());
+				}
+				if (!isDirectory[i] && (bnrRomType[i] == 0) && (access(boxArtPath, F_OK) != 0)) {
+					if (access(boxArtPath, F_OK) != 0) {
+						snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.bmp",
+								 (sys().isRunFromSD() ? "sd" : "fat"),
+								 gameTid[i]);
+					}
 					if (access(boxArtPath, F_OK) != 0) {
 						snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.png",
-								 sys().isRunFromSD() ? "sd" : "fat",
-								 dirContents[scrn][i + PAGENUM * 40].name.c_str());
+								 (sys().isRunFromSD() ? "sd" : "fat"),
+								 gameTid[i]);
 					}
-					if (!isDirectory[i] && (bnrRomType[i] == 0) && (access(boxArtPath, F_OK) != 0)) {
-						if (access(boxArtPath, F_OK) != 0) {
-							snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.bmp",
-									 (sys().isRunFromSD() ? "sd" : "fat"),
-									 gameTid[i]);
-						}
-						if (access(boxArtPath, F_OK) != 0) {
-							snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.png",
-									 (sys().isRunFromSD() ? "sd" : "fat"),
-									 gameTid[i]);
-						}
-					}
-					tex().loadBoxArtToMem(boxArtPath, i);
 				}
+				tex().loadBoxArtToMem(boxArtPath, i);
 			}
 			if (reSpawnBoxes)
 				spawnedtitleboxes++;
