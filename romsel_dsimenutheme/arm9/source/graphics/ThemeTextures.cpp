@@ -1,6 +1,7 @@
 
 #include "ThemeTextures.h"
 #include "ThemeConfig.h"
+#include "fatDirect.h"
 
 #include <nds.h>
 #include <nds/arm9/dldi.h>
@@ -1215,7 +1216,7 @@ void ThemeTextures::loadBoxArtToMem(const char *filename, int num) {
 	}
 
 	// One open for the size check and the read (getFileSize() resolved the path again)
-	FILE *file = fopen(filename, "rb");
+	FILE *file = fatDirectFopen(filename);
 	if (!file) {
 		boxArtFound[num] = false;
 		return;

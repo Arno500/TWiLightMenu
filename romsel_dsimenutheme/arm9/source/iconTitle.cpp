@@ -22,6 +22,7 @@
 ------------------------------------------------------------------*/
 
 #include "iconTitle.h"
+#include "fatDirect.h"
 #include "common/twlmenusettings.h"
 #include "common/bootstrapsettings.h"
 #include "common/customLaunchers.h"
@@ -535,7 +536,7 @@ void getGameInfo(bool isDir, const char *name, int num, bool fromArgv) {
 		FILE *fp;
 
 		// open file for reading info
-		fp = fopen(name, "rb");
+		fp = fatDirectFopen(name);
 		if (!fp) {
 			clearTitle(num);
 			if (customIcon[num] != 2)

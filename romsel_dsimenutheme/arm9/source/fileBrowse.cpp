@@ -1,4 +1,5 @@
 #include "fileBrowse.h"
+#include "fatDirect.h"
 #include <algorithm>
 #include <dirent.h>
 #include <math.h>
@@ -305,6 +306,7 @@ void getDirectoryContents(std::vector<DirEntry> &dirContents, const std::vector<
 	} else {
 		backFound = false;
 		int backPos = 0;
+		fatDirectBeginDir(nullptr, pdir); // lets getGameInfo() open the ROMs without a folder search
 		while (1) {
 			bgOperations(false);
 
@@ -324,6 +326,7 @@ void getDirectoryContents(std::vector<DirEntry> &dirContents, const std::vector<
 				attrs = state[4 + 0xB];
 			}
 
+			fatDirectNoteEntry(pdir); // also before readdir
 			dirent *pent = readdir(pdir);
 			if (pent == nullptr || file_count > ((dsiFeatures() || sys().dsDebugRam()) ? 1024 : 512)) {
 				logPrint("End of listing, Sorting: ");
@@ -387,6 +390,7 @@ void getDirectoryContents(std::vector<DirEntry> &dirContents, const std::vector<
 					fileStartPos++;
 			}
 		}
+		fatDirectEndDir();
 		recalculateBoxesCount();
 
 		if (ms().sortMethod == TWLSettings::ESortAlphabetical) { // Alphabetical
@@ -517,12 +521,18 @@ static void buildBoxArtIndex() {
 	boxArtIndexBuilt = true;
 	if (!dsiFeatures()) return;
 
-	DIR *dir = opendir(sys().isRunFromSD() ? "sd:/_nds/TWiLightMenu/boxart/" : "fat:/_nds/TWiLightMenu/boxart/");
+	const char *boxArtDir = sys().isRunFromSD() ? "sd:/_nds/TWiLightMenu/boxart/" : "fat:/_nds/TWiLightMenu/boxart/";
+	DIR *dir = opendir(boxArtDir);
 	if (!dir) return;
-	while (dirent *ent = readdir(dir)) {
+	fatDirectBeginDir(boxArtDir, dir); // lets loadBoxArtToMem() skip the folder search
+	for (;;) {
+		fatDirectNoteEntry(dir);
+		dirent *ent = readdir(dir);
+		if (!ent) break;
 		if (ent->d_type == DT_DIR) continue;
 		boxArtIndex.push_back(lowerAscii(ent->d_name));
 	}
+	fatDirectEndDir();
 	closedir(dir);
 	std::sort(boxArtIndex.begin(), boxArtIndex.end());
 	boxArtIndexUsable = true;
